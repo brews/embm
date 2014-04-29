@@ -10,76 +10,6 @@ import numpy as np
 
 SECONDS_PER_YEAR = 3.15569e7
 
-def get_diffusion_coef(lat, coef_type):
-    """Calculate the diffusion coefficient for given latitude.
-
-    Args:
-        lat: The latitude (in degrees).
-        coef_type: Either string "heat" or "moisture" determining which 
-            diffusion coefficient is returned.
-
-    Returns:
-        Heat (ν) or moisture (κ) diffusion coefficient (m^2/s).
-    """
-    rad = lat * np.pi/180
-    sin_lat = np.sin(rad)
-    if coef_type == "heat":
-        return 3e6 * (0.81 - 1.08 * sin_lat**2 + 0.74 * sin_lat**4)
-    elif coef_type == "moisture":
-        abs_sin = np.abs(sin_lat)
-        return 1.7e6 * (1.9823 
-                        - 17.3501 * abs_sin 
-                        + 117.2489 * abs_sin**2 
-                        - 274.1129 * abs_sin**3 
-                        + 258.2244 * abs_sin**4 
-                        - 85.7967 * abs_sin**5)
-    else:
-        print("'coef_type' argument needs to be either 'heat' or 'moisture'.")
-        raise
-
-
-def get_emissivity(lat, coef_type):
-    """Calculate emissivity (ϵ) for given latitude.
-
-    Args:
-        lat: The latitude (in degrees).
-        coef_type: Either string "atmosphere" or "planet" determining which 
-            type of emissivity is returned.
-
-    Returns:
-        Heat (ν) or moisture (κ) diffusion coefficient (m^2/s).
-    """
-    rad = lat * np.pi/180
-    sin_lat = np.sin(rad)
-    if coef_type == "atmosphere":
-        return (0.8666 
-                + 0.0408 * sin_lat - 0.2553 * sin_lat**2 
-                - 0.466 * sin_lat**3 + 0.9877 * sin_lat**4 
-                + 2.0257 * sin_lat**5 - 2.3374 * sin_lat**6
-                - 3.199 * sin_lat**7 + 2.8581 * sin_lat**8
-                + 1.6070 * sin_lat**9 - 1.2685 * sin_lat**10) 
-    elif coef_type == "planet":
-        return (0.5531
-                - 0.1296 * sin_lat + 0.6796 * sin_lat**2
-                + 0.7116 * sin_lat**3 - 2.794 * sin_lat**4
-                - 1.3592 * sin_lat**5 + 3.8831 * sin_lat**6
-                + 0.8348 * sin_lat**7 - 1.9536 * sin_lat**8)
-    else:
-        print("'coef_type' argument needs to be either 'atmosphere' or 'planet'.")
-        raise
-
-
-def get_annual_shortwave(lat):
-    """Get the annual distribution of shortwave radiation (S) given latitude.
-    """
-    return 1.5 * (1 - np.sin(lat * np.pi/180)**2)
-
-
-def get_coalbedo(lat):
-    """Get the co-albedo (1 - α) for a given latitude.
-    """
-    return 0.7995 - 0.315 * np.sin(lat * np.pi/180)**2
-
 
 def get_vapor_pressure(temp):
     """Get saturated vapor pressure (e_s; mb) for a given temp (K).
@@ -137,16 +67,58 @@ class Model(object):
         self.sst[self.sst == -999] = np.nan
 
         # TODO: Need test that all spatial arrays are equal.
-
-        self.diffusion_coef_heat = get_diffusion_coef(self.lat_range, "heat")
-        self.diffusion_coef_moisture = get_diffusion_coef(self.lat_range, "moisture")
-        self.annual_shortwave = get_annual_shortwave(self.lat_range)
-        self.coalbedo = get_coalbedo(self.lat_range)
+        self._calc_diffusion_coefs()
+        self._calc_annual_shortwave()
+        self._calc_coalbedo()
         self.scattering = np.zeros((self.n_lat, self.n_lon))
         self.scattering[self.ocean_mask == 1] = self.epsilon_sea
         self.scattering[self.ocean_mask == 0] = self.epsilon_land
-        self.emissivity_planet = get_emissivity(self.lat_range, "planet")
-        self.emissivity_atmosphere = get_emissivity(self.lat_range, "atmosphere")
+        self._calc_emissivity()
+
+    def _calc_diffusion_coefs(self):
+        """Calculate the diffusion coefficients for model latitudes.
+
+        Set model heat (ν) and moisture (κ) diffusion coefficient (m^2/s).
+        """
+        rad = self.lat_range * np.pi/180
+        sin_lat = np.sin(rad)
+        self.diffusion_coef_heat = 3e6 * (0.81 - 1.08 * sin_lat**2 + 0.74 * sin_lat**4)
+        abs_sin = np.abs(sin_lat)
+        self.diffusion_coef_moisture = 1.7e6 * (1.9823 
+                            - 17.3501 * abs_sin 
+                            + 117.2489 * abs_sin**2 
+                            - 274.1129 * abs_sin**3 
+                            + 258.2244 * abs_sin**4 
+                            - 85.7967 * abs_sin**5)
+
+    def _calc_emissivity(self):
+        """Calculate emissivity (ϵ) for given latitude.
+
+        Sets the model atmosphere and planet emissivity.
+        """
+        rad = self.lat_range * np.pi/180
+        sin_lat = np.sin(rad)
+        self.emissivity_atmosphere = (0.8666 
+                    + 0.0408 * sin_lat - 0.2553 * sin_lat**2 
+                    - 0.466 * sin_lat**3 + 0.9877 * sin_lat**4 
+                    + 2.0257 * sin_lat**5 - 2.3374 * sin_lat**6
+                    - 3.199 * sin_lat**7 + 2.8581 * sin_lat**8
+                    + 1.6070 * sin_lat**9 - 1.2685 * sin_lat**10) 
+        self.emissivity_planet = (0.5531
+                    - 0.1296 * sin_lat + 0.6796 * sin_lat**2
+                    + 0.7116 * sin_lat**3 - 2.794 * sin_lat**4
+                    - 1.3592 * sin_lat**5 + 3.8831 * sin_lat**6
+                    + 0.8348 * sin_lat**7 - 1.9536 * sin_lat**8)
+
+    def _calc_annual_shortwave(self):
+        """Set the annual distribution of shortwave radiation (S) given latitude.
+        """
+        self.annual_shortwave = 1.5 * (1 - np.sin(self.lat_range * np.pi/180)**2)
+
+    def _calc_coalbedo(self):
+        """Get the co-albedo (1 - α) for a given latitude.
+        """
+        self.coalbedo = 0.7995 - 0.315 * np.sin(self.lat_range * np.pi/180)**2
 
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
@@ -269,6 +241,7 @@ class Model(object):
 
 n_time_step = 500
 model = Model()
+model.step(1)
 # Weighted divergence:
 # model.diffusion_coef_heat[:, np.newaxis] * np.gradient(model.t)[1] + model.diffusion_coef_heat[:, np.newaxis] * np.gradient(model.t)[0]
 
