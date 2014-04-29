@@ -123,8 +123,8 @@ class Model(object):
         self.solar_constant = 1360  # (w/m^2).
         self.stefanboltz = 5.67e-8  # Stefan-Boltzmann constant (w/(m^2 k^4)).
 
-        self.t = np.ones((self.n_lat, self.n_lon)) * 273.15
-        self.q = np.zeros((self.n_lat, self.n_lon))
+        self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
+        self.q = np.zeros((3, self.n_lat, self.n_lon))
 
         # TODO: A lot of this should be spec in a method or initialization.
         self.lat_range = np.linspace(-90, 90, self.n_lat, endpoint = True)
@@ -147,20 +147,20 @@ class Model(object):
         self.scattering[self.ocean_mask == 0] = self.epsilon_land
         self.emissivity_planet = get_emissivity(self.lat_range, "planet")
         self.emissivity_atmosphere = get_emissivity(self.lat_range, "atmosphere")
-        self.dalton = 1e-3 * (1.0022 - 0.0822 * (self.t - self.sst) + 0.0266 * self.wind)
-        self.stanton = 0.94 * self.dalton
 
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
+        self.dalton = 1e-3 * (1.0022 - 0.0822 * (self.t[1] - self.sst) + 0.0266 * self.wind)
+        self.stanton = 0.94 * self.dalton
         self.q_ssw = self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] * self.coalbedo[:, np.newaxis] * (1 - self.scattering)  # Q_SSW
-        self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t**4  # Q_LW
+        self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t[1]**4  # Q_LW
         self.q_rr = self.emissivity_ocean * self.stefanboltz * self.sst**4 - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t**4  # Q_RR
-        self.q_sh = self.rho_air * self.stanton * self.c_rhoa * self.wind * (self.sst - self.t)  # Q_SH
+        self.q_sh = self.rho_air * self.stanton * self.c_rhoa * self.wind * (self.sst - self.t[1])  # Q_SH
 
     def evaluate_diffusion(self):
         """Evaluate diffusion terms at time `n + 1`"""
-        self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div(self.t, self.diffusion_coef_heat)  # Q_T
-        self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div(self.q, self.diffusion_coef_moisture)  # M_T
+        self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div(self.t[2], self.diffusion_coef_heat)  # Q_T
+        self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div(self.q[2], self.diffusion_coef_moisture)  # M_T
 
     def step_t_forcing(self, i):
         """Update air temperature at `n + 1` based on change in forcing
@@ -205,21 +205,22 @@ class Model(object):
         """
         self.q[2] = self.q[2] + self.time_step * self.mt_t
 
-    def have_rain(self):
-        """Return 1 if precipitation, 0 if not at each grid cell"""
-        rel_humidity = self.q/get_specific_humidity(self.t)
-        out = np.zeros(rel_humidity.shape)
-        out[rel_humidity >= 0.85] = 1
-        return out
+    # def have_rain(self):
+    #     """Return 1 if precipitation, 0 if not at each grid cell"""
+    #     # TODO: Which `n` do we want this at?
+    #     rel_humidity = self.q/get_specific_humidity(self.t)
+    #     out = np.zeros(rel_humidity.shape)
+    #     out[rel_humidity >= 0.85] = 1
+    #     return out
 
-    def update_fluxes(self):
-        """Update the ocean and land flux components"""
-        # eq. 2a and 2b of F&W.
-        self.flux = np.zeros(self.ocean_mask.shape)
-        ocean_flux = self.q_t + self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh
-        land_flux = self.q_t + self.q_ssw - self.q_lw + self.q_lh
-        self.flux[self.ocean_mask == 1] = ocean_flux[self.ocean_mask == 1]
-        self.flux[self.ocean_mask == 0] = land_flux[self.ocean_mask == 0]
+    # def update_fluxes(self):
+    #     """Update the ocean and land flux components"""
+    #     # eq. 2a and 2b of F&W.
+    #     self.flux = np.zeros(self.ocean_mask.shape)
+    #     ocean_flux = self.q_t + self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh
+    #     land_flux = self.q_t + self.q_ssw - self.q_lw + self.q_lh
+    #     self.flux[self.ocean_mask == 1] = ocean_flux[self.ocean_mask == 1]
+    #     self.flux[self.ocean_mask == 0] = land_flux[self.ocean_mask == 0]
 
     def step(self, nstep=1):
         """Push the model through `nstep` time steps."""
