@@ -218,23 +218,23 @@ class Model(object):
             self.evaluate_evap()
             self.step_t_forcing(i)
             self.evaluate_diffusion()
-            self.step_t_diffusion()  # Predictor
-            self.step_q_diffusion()  # Predictor
-            self.evaluate_diffusion()
-            self.step_t_diffusion()  # Corrector
-            self.step_q_diffusion()  # Corrector
-            self.t[2, 0, :] = self.t[2, 1, :].mean()
-            self.t[2, -1, :] = self.t[2, -2, :].mean()
-            self.evaluate_pcip()
-            for v in [self.t, self.q]:
-                v[0] = v[1]
-                v[1] = v[2]
-                v[2] = np.nan
-            if test:
-                t_hist[i] = np.mean(self.t[1])
-                q_hist[i] = np.mean(self.q[1])
-        if test:
-            plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
+            # self.step_t_diffusion()  # Predictor
+            # self.step_q_diffusion()  # Predictor
+            # self.evaluate_diffusion()
+            # self.step_t_diffusion()  # Corrector
+            # self.step_q_diffusion()  # Corrector
+            # self.t[2, 0, :] = self.t[2, 1, :].mean()
+            # self.t[2, -1, :] = self.t[2, -2, :].mean()
+            # self.evaluate_pcip()
+        #     for v in [self.t, self.q]:
+        #         v[0] = v[1]
+        #         v[1] = v[2]
+        #         v[2] = np.nan
+        #     if test:
+        #         t_hist[i] = np.mean(self.t[1])
+        #         q_hist[i] = np.mean(self.q[1])
+        # if test:
+        #     plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
 
 
 n_time_step = 500
