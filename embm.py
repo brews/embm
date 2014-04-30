@@ -151,9 +151,8 @@ class Model(object):
 
     def evaluate_diffusion(self):
         """Evaluate diffusion terms at time `n + 1`"""
-        # TODO: Remember that we need to multiply each of the gradient components by 1/dx or 1/dy.
         self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div_cylinder(self.t[2], self.diffusion_coef_heat, dy = self.y_step, dx = self.x_step)  # Q_T
-        self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div(self.q[2], self.diffusion_coef_moisture)  # M_T
+        self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div_cylinder(self.q[2], self.diffusion_coef_moisture, dy = self.y_step, dx = self.x_step)  # M_T
 
     def step_t_forcing(self, i):
         """Update air temperature at `n + 1` based on change in forcing
