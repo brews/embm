@@ -7,6 +7,7 @@
 # University of Arizona.
 
 import numpy as np
+import pylab as plt
 
 SECONDS_PER_YEAR = 3.15569e7
 
@@ -57,7 +58,7 @@ class Model(object):
         self.n_lon = 72
         self.n_lat = 46
         self.time_step = 3600  # Model time step (s).
-        self.earth_radius = 6371 * 1e3  # (km).
+        self.earth_radius = 6371 * 1e3  # (m).
         self.rho_air = 1.25  # Air density (kg/m^3).
         self.rho_sea = 1024  # Sea surface density (kg/m^3).
         self.epsilon_sea = 0.65  # Solar scattering coefficient over ocean, c_0.
@@ -83,6 +84,7 @@ class Model(object):
         self.ocean_mask = np.loadtxt("./data/mask.txt", dtype = "i")
         self.wind = np.loadtxt("./data/wind.txt", dtype = "d")
         self.sst = np.loadtxt("./data/sst.txt", dtype = "f")
+        self.sst += 273.15
         self.sst[self.sst == -999] = np.nan
 
         # TODO: Need test that all spatial arrays are equal.
@@ -93,6 +95,8 @@ class Model(object):
         self.scattering[self.ocean_mask == 1] = self.epsilon_sea
         self.scattering[self.ocean_mask == 0] = self.epsilon_land
         self._calc_emissivity()
+        self.calc_pcip_flag()
+        self.p = np.zeros(self.wind.shape)
 
     def _calc_diffusion_coefs(self):
         """Calculate the diffusion coefficients for model latitudes.
@@ -147,7 +151,21 @@ class Model(object):
         self.q_ssw = self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] * self.coalbedo[:, np.newaxis] * (1 - self.scattering)  # Q_SSW
         self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t[1]**4  # Q_LW
         self.q_rr = self.emissivity_ocean * self.stefanboltz * self.sst**4 - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t[1]**4  # Q_RR
+        self.q_rr[self.ocean_mask == 0] = 0
         self.q_sh = self.rho_air * self.stanton * self.c_rhoa * self.wind * (self.sst - self.t[1])  # Q_SH
+        self.q_sh[self.ocean_mask == 0] = 0
+        self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
+
+    def evaluate_evap(self):
+        """Evaluate the evaporation terms at `n`"""
+        self.e = (self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)/self.rho_sea * (get_specific_humidity(self.sst) - self.q[1])  # E
+        # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
+
+    def evaluate_pcip(self):
+        """Evaluate the precipitation terms at `n + 1`"""
+        self.calc_pcip_flag
+        self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.pcip_flag * (self.q[2] - 0.85 * get_specific_humidity(self.t[2]))  # P
+        self.q[2] = 0.85 * get_specific_humidity(self.t[2])
 
     def evaluate_diffusion(self):
         """Evaluate diffusion terms at time `n + 1`"""
@@ -157,28 +175,15 @@ class Model(object):
     def step_t_forcing(self, i):
         """Update air temperature at `n + 1` based on change in forcing
 
-        This uses a leapfrog/Euler-forward scheme."""
+        This uses a leapfrog/Euler-forward scheme.
+        """
         if i%10 == 0:
             # Do Euler forward time differencing.
             # TODO: Check to be sure we're handling this properly over water vs. land.
-            self.t[2] = self.t[1] + self.time_step * (self.q_ssw + self.q_lw + self.q_rr + self.q_sh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
+            self.t[2] = self.t[1] + self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
         else:
             # Do leapfrog time differencing.
-            self.t[2] = self.t[0] + 2 * self.time_step * (self.q_ssw + self.q_lw + self.q_rr + self.q_sh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
-
-    def step_q_forcing(self, i):
-        """Update specific humidity at `n + 1` based on change in forcing
-
-        This uses a leapfrog/Euler-forward scheme."""
-        if i%10 == 0:
-            # Do Euler forward time differencing.
-            # TODO: Check to be sure we're handling this properly over water vs. land.
-            # self.t[2] = self.t[1] + self.time_step * (self.q_ssw + self.q_lw + self.q_rr + self.q_sh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
-            pass
-        else:
-            # Do leapfrog time differencing.
-            # self.t[2] = self.t[0] + 2 * self.time_step * (self.q_ssw + self.q_lw + self.q_rr + self.q_sh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
-            pass
+            self.t[2] = self.t[0] + 2 * self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
 
     def step_t_diffusion(self):
         """Update air temperature at `n + 1` based on change in diffusion terms
@@ -192,69 +197,48 @@ class Model(object):
 
         This uses the Matsuno predictor-corrector scheme.
         """
-        self.q[2] = self.q[2] + self.time_step * self.m_t
+        self.q[2] = self.q[2] + self.time_step * self.m_t/(self.rho_air * self.scale_depth_humidity)
 
-    # def have_rain(self):
-    #     """Return 1 if precipitation, 0 if not at each grid cell"""
-    #     # TODO: Which `n` do we want this at?
-    #     rel_humidity = self.q/get_specific_humidity(self.t)
-    #     out = np.zeros(rel_humidity.shape)
-    #     out[rel_humidity >= 0.85] = 1
-    #     return out
+    def calc_pcip_flag(self):
+        """Return 1 if precipitation, 0 if not at each grid cell"""
+        # TODO: Which `n` do we want this at?
+        rel_humidity = self.q[2]/get_specific_humidity(self.t[2])
+        out = np.zeros(rel_humidity.shape)
+        out[rel_humidity >= 0.85] = 1
+        self.pcip_flag = out
 
-    # def update_fluxes(self):
-    #     """Update the ocean and land flux components"""
-    #     # eq. 2a and 2b of F&W.
-    #     self.flux = np.zeros(self.ocean_mask.shape)
-    #     ocean_flux = self.q_t + self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh
-    #     land_flux = self.q_t + self.q_ssw - self.q_lw + self.q_lh
-    #     self.flux[self.ocean_mask == 1] = ocean_flux[self.ocean_mask == 1]
-    #     self.flux[self.ocean_mask == 0] = land_flux[self.ocean_mask == 0]
-
-    def step(self, nstep=1):
+    def step(self, nstep=1, test=False):
         """Push the model through `nstep` time steps."""
+        if test:
+            t_hist = np.zeros(nstep)
+            q_hist = np.zeros(nstep)
         for i in range(nstep):
             self.evaluate_forcing()
+            self.evaluate_evap()
             self.step_t_forcing(i)
-            self.step_q_forcing(i)
             self.evaluate_diffusion()
             self.step_t_diffusion()  # Predictor
             self.step_q_diffusion()  # Predictor
             self.evaluate_diffusion()
             self.step_t_diffusion()  # Corrector
             self.step_q_diffusion()  # Corrector
+            self.t[2, 0, :] = self.t[2, 1, :].mean()
+            self.t[2, -1, :] = self.t[2, -2, :].mean()
+            self.evaluate_pcip()
             for v in [self.t, self.q]:
                 v[0] = v[1]
                 v[1] = v[2]
                 v[2] = np.nan
-
+            if test:
+                t_hist[i] = np.mean(self.t[1])
+                q_hist[i] = np.mean(self.q[1])
+        if test:
+            plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
+            plt.show()
         # # Wet terms
         # self.e = (self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)/self.rho_sea * (get_specific_humidity(self.sst + 273.15) - self.q)  # E
-        # self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.have_rain() * (self.q - 0.85 * get_specific_humidity(self.t))  # P
+        # self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.calc_pcip_flag() * (self.q - 0.85 * get_specific_humidity(self.t))  # P
         # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
-        # # Now partial derivs.
-        # self.update_fluxes()
-        # self.partial_t = self.flux / (self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)  # partial T/partial t
-        # self.partial_q = (self.m_t + self.rho_sea * (self.e - self.p)/SECONDS_PER_YEAR)/(self.rho_air * SECONDS_PER_YEAR)  # partial q/partial t
-        # self.t = self.time_step * self.partial_t
-        # self.q = self.time_step * self.partial_q
-        
-        # # SECOND UPDATE
-        # self.dalton = 1e-3 * (1.0022 - 0.0822 * (self.t - self.sst) + 0.0266 * self.wind)
-        # self.stanton = 0.94 * self.dalton
-        # # Forcing terms
-        # self.q_ssw = self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] * self.coalbedo[:, np.newaxis] * (1 - self.scattering)  # Q_SSW
-        # self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t**4  # Q_LW
-        # self.q_rr = self.emissivity_ocean * self.stefanboltz * self.sst**4 - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t**4  # Q_RR
-        # self.q_sh = self.rho_air * self.stanton * self.c_rhoa * self.wind * (self.sst - self.t)  # Q_SH
-        # # Diffusion terms
-        # self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div(self.t, self.diffusion_coef_heat)  # Q_T
-        # self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div(self.q, self.diffusion_coef_moisture)  # M_T
-        # # Wet terms
-        # self.e = (self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)/self.rho_sea * (get_specific_humidity(self.sst + 273.15) - self.q)  # E
-        # self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.have_rain() * (self.q - 0.85 * get_specific_humidity(self.t))  # P
-        # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
-
 
 n_time_step = 500
 model = Model()
