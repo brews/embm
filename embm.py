@@ -12,27 +12,44 @@ SECONDS_PER_YEAR = 3.15569e7
 
 
 def get_vapor_pressure(temp):
-    """Get saturated vapor pressure (e_s; mb) for a given temp (K).
+    """Get saturated vapor pressure (e_s; mb) for a given temp (K)
     """
     temp_c = temp - 273.15
     return 6.112 * np.exp((17.67 * temp_c)/(temp_c + 243.5))
 
 
 def get_specific_humidity(temp):
-    """Get saturated specific humidity (q_s; g/kg) for a given temp (K).
+    """Get saturated specific humidity (q_s; g/kg) for a given temp (K)
     """
     vapor_p = get_vapor_pressure(temp)
     return 0.622 * (vapor_p/(1013.26 - 0.378 * vapor_p))
 
-
 def div(x):
-    """Divergence of n-D array x."""
+    """Divergence of n-D array x"""
     return np.sum(np.gradient(x), axis = 0)
 
-
 def weighted_div(x, w):
-    """Divergence of 2D array `x`, weighting it with 1D `w` before summing."""
+    """Div of 2D array `x`, weighting it with 1D `w` before summing"""
     return np.sum([w[:, np.newaxis] * i for i in np.gradient(x)], axis = 0)
+
+def grad_cylinder(x, dy=1, dx=np.ones(1)):
+    """Gradient of 2D array x given a circular horizonal movement
+
+    Args:
+        x: 2D array of interest.
+        dy: Optional scalar giving the distance between observations along the y-axis.
+        dx: Optional array (1 or 2D) giving the distance between observations along the x-axis.
+    """
+    dull = np.gradient(x, dy, dx[:, np.newaxis])
+    right = np.gradient(np.roll(x, -1, axis = 1), dy, np.roll(dx, -1)[:, np.newaxis])[1][:, -2]
+    left = np.gradient(np.roll(x, 1, axis = 1), dy, np.roll(dx, 1)[:, np.newaxis])[1][:, 1]
+    dull[1][:, -1] = right
+    dull[1][:, 0] = left
+    return dull
+
+def weighted_div_cylinder(x, w, dy=1, dx=1):
+    """Div of cylinder 2D array `x`, weighting it with 1D `w` before summing"""
+    return np.sum([w[:, np.newaxis] * i for i in grad_cylinder(x, dy, dx)], axis = 0)
 
 
 class Model(object):
@@ -40,7 +57,7 @@ class Model(object):
         self.n_lon = 72
         self.n_lat = 46
         self.time_step = 3600  # Model time step (s).
-        self.earth_radius = 6371  # (km).
+        self.earth_radius = 6371 * 1e3  # (km).
         self.rho_air = 1.25  # Air density (kg/m^3).
         self.rho_sea = 1024  # Sea surface density (kg/m^3).
         self.epsilon_sea = 0.65  # Solar scattering coefficient over ocean, c_0.
@@ -59,6 +76,8 @@ class Model(object):
         # TODO: A lot of this should be spec in a method or initialization.
         self.lat_range = np.linspace(-90, 90, self.n_lat, endpoint = True)
         self.lon_range = np.linspace(-180, 180, self.n_lon, endpoint = True)
+        self.x_step = self.earth_radius * 2 * np.cos(self.lat_range * np.pi/180) * np.pi / self.n_lon  # (m)
+        self.y_step = self.earth_radius * 2 * np.pi  # (m)
 
         # TODO: This IO should use a method and be done in main().
         self.ocean_mask = np.loadtxt("./data/mask.txt", dtype = "i")
@@ -122,6 +141,7 @@ class Model(object):
 
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
+        # TODO: Be sure we're accounting for all terms in eq 2. and ocean/land differences.
         self.dalton = 1e-3 * (1.0022 - 0.0822 * (self.t[1] - self.sst) + 0.0266 * self.wind)
         self.stanton = 0.94 * self.dalton
         self.q_ssw = self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] * self.coalbedo[:, np.newaxis] * (1 - self.scattering)  # Q_SSW
@@ -131,7 +151,8 @@ class Model(object):
 
     def evaluate_diffusion(self):
         """Evaluate diffusion terms at time `n + 1`"""
-        self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div(self.t[2], self.diffusion_coef_heat)  # Q_T
+        # TODO: Remember that we need to multiply each of the gradient components by 1/dx or 1/dy.
+        self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div_cylinder(self.t[2], self.diffusion_coef_heat, dy = self.y_step, dx = self.x_step)  # Q_T
         self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div(self.q[2], self.diffusion_coef_moisture)  # M_T
 
     def step_t_forcing(self, i):
@@ -165,7 +186,7 @@ class Model(object):
 
         This uses the Matsuno predictor-corrector scheme.
         """
-        self.t[2] = self.t[2] + self.time_step * self.q_t
+        self.t[2] = self.t[2] + self.time_step * self.q_t/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
 
     def step_q_diffusion(self):
         """Update specific humidity at `n + 1` based on change in diffusion terms
@@ -238,7 +259,7 @@ class Model(object):
 
 n_time_step = 500
 model = Model()
-model.step(1)
+# model.step(1)
 # Weighted divergence:
 # model.diffusion_coef_heat[:, np.newaxis] * np.gradient(model.t)[1] + model.diffusion_coef_heat[:, np.newaxis] * np.gradient(model.t)[0]
 
