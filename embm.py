@@ -126,7 +126,7 @@ class Model(object):
         self.stanton = 0.94 * self.dalton
         self.q_ssw = self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] * self.coalbedo[:, np.newaxis] * (1 - self.scattering)  # Q_SSW
         self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t[1]**4  # Q_LW
-        self.q_rr = self.emissivity_ocean * self.stefanboltz * self.sst**4 - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t**4  # Q_RR
+        self.q_rr = self.emissivity_ocean * self.stefanboltz * self.sst**4 - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t[1]**4  # Q_RR
         self.q_sh = self.rho_air * self.stanton * self.c_rhoa * self.wind * (self.sst - self.t[1])  # Q_SH
 
     def evaluate_diffusion(self):
@@ -167,15 +167,12 @@ class Model(object):
         """
         self.t[2] = self.t[2] + self.time_step * self.q_t
 
-    def step_q_diffusion(self, x):
+    def step_q_diffusion(self):
         """Update specific humidity at `n + 1` based on change in diffusion terms
-
-        Args:
-            x: Determines which time-differencing scheme is used. "predictor" returns the initial result. "corrector" returns the corrected result.
 
         This uses the Matsuno predictor-corrector scheme.
         """
-        self.q[2] = self.q[2] + self.time_step * self.mt_t
+        self.q[2] = self.q[2] + self.time_step * self.m_t
 
     # def have_rain(self):
     #     """Return 1 if precipitation, 0 if not at each grid cell"""
