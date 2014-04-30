@@ -63,11 +63,11 @@ class Model(object):
         self.rho_sea = 1024  # Sea surface density (kg/m^3).
         self.epsilon_sea = 0.65  # Solar scattering coefficient over ocean, c_0.
         self.epsilon_land = 0.3  # Solar scattering coefficient over land, c_0.
-        self.c_rhoa = 1e3  # Heat capacity of dry air (j/(kg k)).
+        self.c_rhoa = 1e3  # Heat capacity of dry air (J/(kg K)).
         self.emissivity_ocean = 0.96
         self.scale_depth_atmosphere = 8400  # (m).
         self.scale_depth_humidity = 1800  # Specific humidity scale depth (m).
-        self.latent_heat_evap = 2.5e6  # Latent heat of evaporation (j/kg).
+        self.latent_heat_evap = 2.5e6  # Latent heat of evaporation (J/kg).
         self.solar_constant = 1360  # (w/m^2).
         self.stefanboltz = 5.67e-8  # Stefan-Boltzmann constant (w/(m^2 k^4)).
 
@@ -78,14 +78,15 @@ class Model(object):
         self.lat_range = np.linspace(-90, 90, self.n_lat, endpoint = True)
         self.lon_range = np.linspace(-180, 180, self.n_lon, endpoint = True)
         self.x_step = self.earth_radius * 2 * np.cos(self.lat_range * np.pi/180) * np.pi / self.n_lon  # (m)
-        self.y_step = self.earth_radius * 2 * np.pi  # (m)
+        self.x_step[0] = 1; self.x_step[-1] = 1  # Not sure about this.
+        self.y_step = self.earth_radius * 2 * np.pi / self.n_lat  # (m)
 
         # TODO: This IO should use a method and be done in main().
         self.ocean_mask = np.loadtxt("./data/mask.txt", dtype = "i")
         self.wind = np.loadtxt("./data/wind.txt", dtype = "d")
         self.sst = np.loadtxt("./data/sst.txt", dtype = "f")
-        self.sst += 273.15
         self.sst[self.sst == -999] = np.nan
+        self.sst += 273.15
 
         # TODO: Need test that all spatial arrays are equal.
         self._calc_diffusion_coefs()
@@ -159,6 +160,7 @@ class Model(object):
     def evaluate_evap(self):
         """Evaluate the evaporation terms at `n`"""
         self.e = (self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)/self.rho_sea * (get_specific_humidity(self.sst) - self.q[1])  # E
+        self.e[self.ocean_mask == 0] = 0
         # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
 
     def evaluate_pcip(self):
@@ -179,7 +181,6 @@ class Model(object):
         """
         if i%10 == 0:
             # Do Euler forward time differencing.
-            # TODO: Check to be sure we're handling this properly over water vs. land.
             self.t[2] = self.t[1] + self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
         else:
             # Do leapfrog time differencing.
@@ -197,7 +198,7 @@ class Model(object):
 
         This uses the Matsuno predictor-corrector scheme.
         """
-        self.q[2] = self.q[2] + self.time_step * self.m_t/(self.rho_air * self.scale_depth_humidity)
+        self.q[2] = self.q[2] + self.time_step * (self.m_t + (self.rho_sea * (self.e - self.p))/SECONDS_PER_YEAR)/(self.rho_air * self.scale_depth_humidity)
 
     def calc_pcip_flag(self):
         """Return 1 if precipitation, 0 if not at each grid cell"""
@@ -234,20 +235,11 @@ class Model(object):
                 q_hist[i] = np.mean(self.q[1])
         if test:
             plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
-            plt.show()
-        # # Wet terms
-        # self.e = (self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)/self.rho_sea * (get_specific_humidity(self.sst + 273.15) - self.q)  # E
-        # self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.calc_pcip_flag() * (self.q - 0.85 * get_specific_humidity(self.t))  # P
-        # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
+
 
 n_time_step = 500
 model = Model()
 # model.step(1)
-# Weighted divergence:
-# model.diffusion_coef_heat[:, np.newaxis] * np.gradient(model.t)[1] + model.diffusion_coef_heat[:, np.newaxis] * np.gradient(model.t)[0]
-
-# model.step(n_time_step)
-
 
 # if __name__ == '__main__':
     # main()
