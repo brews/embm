@@ -25,6 +25,7 @@ def get_specific_humidity(temp):
     vapor_p = get_vapor_pressure(temp)
     return 0.622 * (vapor_p/(1013.26 - 0.378 * vapor_p))
 
+
 class Model(object):
     def __init__(self):
         self._initialize_constants()
@@ -33,7 +34,7 @@ class Model(object):
     def _initialize_constants(self):
         self.n_lon = 72
         self.n_lat = 46
-        self.time_step = 3600  # Model time step (s).
+        self.time_step = 3600/2  # Model time step (s).
         self.earth_radius = 6371 * 1e3  # (m).
         self.rho_air = 1.25  # Air density (kg/m^3).
         self.rho_sea = 1024  # Sea surface density (kg/m^3).
@@ -143,7 +144,7 @@ class Model(object):
         """Evaluate the precipitation terms at `n + 1`"""
         self.calc_pcip_flag()
         self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.pcip_flag * (self.q[2] - 0.85 * get_specific_humidity(self.t[2]))  # P
-        self.q[2] = 0.85 * get_specific_humidity(self.t[2])
+        self.q[2][self.pcip_flag == 1] = 0.85 * get_specific_humidity(self.t[2][self.pcip_flag == 1])
 
     def evaluate_t_diffusion(self):
         """Evaluate heat diffusion at time `n + 1`"""
@@ -297,17 +298,25 @@ class Model(object):
             for v in [self.t, self.q]:
                 v[0] = np.copy(v[1])
                 v[1] = np.copy(v[2])
-                v[2] = 0
+                # v[2] =
             if test:
                 t_hist[i] = np.mean(self.t[1])
                 q_hist[i] = np.mean(self.q[1])
         if test:
-            plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
+            plt.subplot(2, 1, 1)
+            p = plt.plot(np.arange(nstep), t_hist, "r")
+            plt.title("t")
+            plt.subplot(2, 1, 2)
+            p = plt.plot(np.arange(nstep), q_hist, "b")
+            plt.title("q")
+            plt.tight_layout()
+            plt.show()
+            return (t_hist, q_hist)
 
 
 
 m = Model()
-m.step(15, test = True)
+m.step(1000, test = True)
 
 # if __name__ == '__main__':
     # main()
