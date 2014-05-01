@@ -1,13 +1,29 @@
-#! /usr/bin/env python3
 # 2014-04-11
 # Copyright 2014 S. Brewster Malevich <malevich@email.arizona.edu>
-    
-# Energy-moisture balance climate model based on Fanning and Weaver 1996 (F&W).
-# This is a term project for Earth System Modeling (GEOS573) at the 
-# University of Arizona.
+#
+#   embm-python is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+
+"""
+Energy-moisture balance climate model based on Fanning and Weaver 1996 (F&W).
+"""
+
 
 import numpy as np
 import pylab as plt
+from tqdm import tqdm
+
 
 SECONDS_PER_YEAR = 3.15569e7
 
@@ -27,6 +43,7 @@ def get_specific_humidity(temp):
 
 
 class Model(object):
+
     def __init__(self):
         self._initialize_constants()
         self._initialize_variables()
@@ -51,7 +68,8 @@ class Model(object):
         # TODO: A lot of this should be spec in a method or initialization.
         self.lat_range = np.linspace(-90, 90, self.n_lat, endpoint = True)
         self.lon_range = np.linspace(-180, 180, self.n_lon, endpoint = True)
-        self.x_step = self.earth_radius * 2 * np.cos(self.lat_range * np.pi/180) * np.pi / self.n_lon  # (m)
+        self.x_step = (self.earth_radius * 2 * np.cos(self.lat_range * np.pi/180) 
+            * np.pi / self.n_lon)  # (m)
         self.x_step[0] = 1; self.x_step[-1] = 1  # Not sure about this.
         self.y_step = self.earth_radius * 2 * np.pi / self.n_lat  # (m)
         
@@ -77,13 +95,14 @@ class Model(object):
         self.p = np.zeros(self.wind.shape)
 
     def _calc_diffusion_coefs(self):
-        """Calculate the diffusion coefficients for model latitudes.
+        """Calculate the diffusion coefficients for model latitudes
 
         Set model heat (ν) and moisture (κ) diffusion coefficient (m^2/s).
         """
         rad = self.lat_range * np.pi/180
         sin_lat = np.sin(rad)
-        self.diffusion_coef_heat = 3e6 * (0.81 - 1.08 * sin_lat**2 + 0.74 * sin_lat**4)
+        self.diffusion_coef_heat = 3e6 * (0.81 - 1.08 * sin_lat**2 
+                                               + 0.74 * sin_lat**4)
         abs_sin = np.abs(sin_lat)
         self.diffusion_coef_moisture = 1.7e6 * (1.9823 
                             - 17.3501 * abs_sin 
@@ -93,7 +112,7 @@ class Model(object):
                             - 85.7967 * abs_sin**5)
 
     def _calc_emissivity(self):
-        """Calculate emissivity (ϵ) for given latitude.
+        """Calculate emissivity (ϵ) for given latitude
 
         Sets the model atmosphere and planet emissivity.
         """
@@ -112,23 +131,29 @@ class Model(object):
                     + 0.8348 * sin_lat**7 - 1.9536 * sin_lat**8)
 
     def _calc_annual_shortwave(self):
-        """Set the annual distribution of shortwave radiation (S) given latitude.
+        """Set the annual distribution of shortwave radiation (S) given latitude
         """
         self.annual_shortwave = 1.5 * (1 - np.sin(self.lat_range * np.pi/180)**2)
 
     def _calc_coalbedo(self):
-        """Get the co-albedo (1 - α) for a given latitude.
-        """
+        """Get the co-albedo (1 - α) for a given latitude"""
         self.coalbedo = 0.7995 - 0.315 * np.sin(self.lat_range * np.pi/180)**2
+
+    def reset(self):
+        """Reset the model's variables"""
+        self._initialize_variables()
 
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
         # TODO: Be sure we're accounting for all terms in eq 2. and ocean/land differences.
         self.dalton = 1e-3 * (1.0022 - 0.0822 * (self.t[1] - self.sst) + 0.0266 * self.wind)
         self.stanton = 0.94 * self.dalton
-        self.q_ssw = self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] * self.coalbedo[:, np.newaxis] * (1 - self.scattering)  # Q_SSW
+        
+        self.q_ssw = (self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] 
+            * self.coalbedo[:, np.newaxis] * (1 - self.scattering))  # Q_SSW
         self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t[1]**4  # Q_LW
-        self.q_rr = self.emissivity_ocean * self.stefanboltz * self.sst**4 - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t[1]**4  # Q_RR
+        self.q_rr = (self.emissivity_ocean * self.stefanboltz * self.sst**4 
+            - self.emissivity_atmosphere[:, np.newaxis]* self.stefanboltz * self.t[1]**4)  # Q_RR
         self.q_rr[self.ocean_mask == 0] = 0
         self.q_sh = self.rho_air * self.stanton * self.c_rhoa * self.wind * (self.sst - self.t[1])  # Q_SH
         self.q_sh[self.ocean_mask == 0] = 0
@@ -136,72 +161,86 @@ class Model(object):
 
     def evaluate_evap(self):
         """Evaluate the evaporation terms at `n`"""
-        self.e = (self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)/self.rho_sea * (get_specific_humidity(self.sst) - self.q[1])  # E
+        self.e = ((self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)
+            /self.rho_sea * (get_specific_humidity(self.sst) - self.q[1]))  # E
         self.e[self.ocean_mask == 0] = 0
         # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
 
     def evaluate_pcip(self):
         """Evaluate the precipitation terms at `n + 1`"""
         self.calc_pcip_flag()
-        self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.pcip_flag * (self.q[2] - 0.85 * get_specific_humidity(self.t[2]))  # P
+        self.p = ((self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)
+            /(self.rho_sea * self.time_step) * self.pcip_flag 
+            * (self.q[2] - 0.85 * get_specific_humidity(self.t[2])))  # P
         self.q[2][self.pcip_flag == 1] = 0.85 * get_specific_humidity(self.t[2][self.pcip_flag == 1])
 
     def evaluate_t_diffusion(self):
         """Evaluate heat diffusion at time `n + 1`"""
         partialx = np.zeros(self.t[2].shape)
-        partialy = np.zeros(self.t[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
-                partialx[i, j] = (self.t[2, i, j + 1] - self.t[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_heat[i]
+                partialx[i, j] = ((self.t[2, i, j + 1] - self.t[2, i, j - 1]) 
+                    / (2 * self.x_step[i]) * self.diffusion_coef_heat[i])
         partialx[:, 0] = (self.t[2, :, 1] - self.t[2, :, -1]) / (2 * self.x_step)
         partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step)
         partialx2 = np.zeros(self.t[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
-                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
+                partialx2[i, j] = ((partialx[i, j + 1] - partialx[i, j - 1]) 
+                    / (2 * self.x_step[i]))
         partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
         partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
+
+        partialy = np.zeros(self.t[2].shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
-                partialy[i, j] = (self.t[2, i + 1, j] - self.t[2, i - 1, j]) / (2 * self.y_step)
+                partialy[i, j] = ((self.t[2, i + 1, j] - self.t[2, i - 1, j]) 
+                    / (2 * self.y_step))
         partialy[0, :] = (self.t[2, 1, :] - self.t[2, 0, :]) / (self.y_step)
         partialy[-1, :] = (self.t[2, -1, :] - self.t[2, -2, :]) / (self.y_step)
         partialy2 = np.zeros(self.t[2].shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
-                partialy2[i, j] = (partialy[i + 1, j] - partialy[i - 1, j]) / (2 * self.y_step) * self.diffusion_coef_heat[i]
+                partialy2[i, j] = ((partialy[i + 1, j] - partialy[i - 1, j]) 
+                    / (2 * self.y_step) * self.diffusion_coef_heat[i])
         partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
         partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
+
         self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * (partialy2 + partialx2)  # Q_t
 
     def evaluate_q_diffusion(self):
         """Evaluate moisture diffusion at time `n + 1`"""
         partialx = np.zeros(self.q[2].shape)
-        partialy = np.zeros(self.q[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
-                partialx[i, j] = (self.q[2, i, j + 1] - self.q[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_moisture[i]
+                partialx[i, j] = ((self.q[2, i, j + 1] - self.q[2, i, j - 1]) 
+                    / (2 * self.x_step[i]) * self.diffusion_coef_moisture[i])
         partialx[:, 0] = (self.q[2, :, 1] - self.q[2, :, -1]) / (2 * self.x_step)
         partialx[:, -1] = (self.q[2, :, 0] - self.q[2, :, -2]) / (2 * self.x_step)
         partialx2 = np.zeros(self.q[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
-                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
+                partialx2[i, j] = ((partialx[i, j + 1] - partialx[i, j - 1]) 
+                    / (2 * self.x_step[i]))
         partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
         partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
+
+        partialy = np.zeros(self.q[2].shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
-                partialy[i, j] = (self.q[2, i + 1, j] - self.q[2, i - 1, j]) / (2 * self.y_step)
+                partialy[i, j] = ((self.q[2, i + 1, j] - self.q[2, i - 1, j]) 
+                    / (2 * self.y_step))
         partialy[0, :] = (self.q[2, 1, :] - self.q[2, 0, :]) / (self.y_step)
         partialy[-1, :] = (self.q[2, -1, :] - self.q[2, -2, :]) / (self.y_step)
         partialy2 = np.zeros(self.q[2].shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
-                partialy2[i, j] = (partialy[i + 1, j] - partialy[i - 1, j]) / (2 * self.y_step) * self.diffusion_coef_moisture[i]
+                partialy2[i, j] = ((partialy[i + 1, j] - partialy[i - 1, j]) 
+                    / (2 * self.y_step) * self.diffusion_coef_moisture[i])
         partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
         partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
-        self.m_t = self.rho_air * self.scale_depth_humidity * (partialy2 + partialx2)  # M_T
 
+        self.m_t = self.rho_air * self.scale_depth_humidity * (partialy2 + partialx2)  # M_T
 
     def step_t_forcing(self, i):
         """Update air temperature at `n + 1` based on change in forcing
@@ -210,10 +249,12 @@ class Model(object):
         """
         if i%10 == 0:
             # Do Euler forward time differencing.
-            self.t[2] = self.t[1] + self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh)
+            self.t[2] = (self.t[1] + self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) 
+                * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh))
         else:
             # Do leapfrog time differencing.
-            self.t[2] = self.t[0] + 2 * self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh)
+            self.t[2] = (self.t[0] + 2 * self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) 
+                * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh))
 
     def step_t_diffusion(self):
         """Update air temperature at `n + 1` based on change in diffusion terms
@@ -229,7 +270,8 @@ class Model(object):
 
         This uses the Matsuno predictor-corrector scheme.
         """
-        self.q[2] += self.time_step * (self.m_t + (self.rho_sea * (self.e - self.p))/SECONDS_PER_YEAR)/(self.rho_air * self.scale_depth_humidity)
+        self.q[2] += (self.time_step * (self.m_t + (self.rho_sea * (self.e - self.p))/SECONDS_PER_YEAR)
+            / (self.rho_air * self.scale_depth_humidity))
         self.q[2, 0, :] = self.q[2, 1, :].mean()
         self.q[2, -1, :] = self.q[2, -2, :].mean()
 
@@ -239,32 +281,37 @@ class Model(object):
         This uses the Matsuno predictor-corrector scheme.
         """
         partialx = np.zeros(self.t[2].shape)
-        partialy = np.zeros(self.t[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
-                partialx[i, j] = (self.t[2, i, j + 1] - self.t[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_heat[i]
+                partialx[i, j] = ((self.t[2, i, j + 1] - self.t[2, i, j - 1]) 
+                    / (2 * self.x_step[i]) * self.diffusion_coef_heat[i])
         partialx[:, 0] = (self.t[2, :, 1] - self.t[2, :, -1]) / (2 * self.x_step)
         partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step)
         partialx2 = np.zeros(self.t[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
-                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
+                partialx2[i, j] = ((partialx[i, j + 1] - partialx[i, j - 1]) 
+                    / (2 * self.x_step[i]))
         partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
         partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
 
         tstar = self.t[2] + self.time_step * partialx2
 
+        partialy = np.zeros(self.t[2].shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
-                partialy[i, j] = (tstar[i + 1, j] - tstar[i - 1, j]) / (2 * self.y_step)
+                partialy[i, j] = ((tstar[i + 1, j] - tstar[i - 1, j]) 
+                    / (2 * self.y_step))
         partialy[0, :] = (tstar[1, :] - tstar[0, :]) / (self.y_step)
         partialy[-1, :] = (tstar[-1, :] - tstar[-2, :]) / (self.y_step)
         partialy2 = np.zeros(tstar.shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
-                partialy2[i, j] = (partialy[i + 1, j] - partialy[i - 1, j]) / (2 * self.y_step) * self.diffusion_coef_heat[i]
+                partialy2[i, j] = ((partialy[i + 1, j] - partialy[i - 1, j]) 
+                    / (2 * self.y_step) * self.diffusion_coef_heat[i])
         partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
         partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
+
         self.t[2] = tstar + self.time_step * partialy2
         self.t[2, 0, :] = self.t[2, 1, :].mean()
         self.t[2, -1, :] = self.t[2, -2, :].mean()
@@ -278,11 +325,11 @@ class Model(object):
         self.pcip_flag = out
 
     def step(self, nstep=1, test=False):
-        """Push the model through `nstep` time steps."""
+        """Push the model through `nstep` time steps"""
         if test:
             t_hist = np.zeros(nstep)
             q_hist = np.zeros(nstep)
-        for i in range(nstep):
+        for i in tqdm(range(nstep)):
             self.evaluate_forcing()
             self.evaluate_evap()
             self.step_t_forcing(i)
@@ -312,11 +359,3 @@ class Model(object):
             plt.tight_layout()
             plt.show()
             return (t_hist, q_hist)
-
-
-
-m = Model()
-m.step(1000, test = True)
-
-# if __name__ == '__main__':
-    # main()
