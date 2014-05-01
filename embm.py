@@ -282,9 +282,23 @@ class Model(object):
         out[rel_humidity >= 0.85] = 1
         self.pcip_flag = out
 
-    def step(self, nstep=1, test=False, euler_steps=10):
-        """Push the model through `nstep` time steps"""
-        if test:
+    def step(self, nstep=1, trace=False, euler_steps=10):
+        """Run the model for a period of time_step
+
+        Args:
+            nstep: The number of time steps to run through. Default is 1.
+            trace: Either `True` or `False` indicating whether you would like 
+                the mean specific humidity and air temperature averages for 
+                each time step to be stored and returned. Default is `False`.
+            euler_steps: After how many time steps the temperature forcing 
+                integration should switch from a Leapfrog scheme to a Euler 
+                forward scheme. The default is 10 steps.
+
+        Returns:
+            Nothing unless `euler_steps = True`, then `t_history`, and 
+            `q_history` are returned.
+        """
+        if trace:
             t_hist = np.zeros(nstep)
             q_hist = np.zeros(nstep)
         for i in tqdm(range(nstep)):
@@ -306,17 +320,10 @@ class Model(object):
             for v in [self.t, self.q]:
                 v[0] = np.copy(v[1])
                 v[1] = np.copy(v[2])
+                # TODO: Check why we can't assign to v[2]. Somehting is off here.
                 # v[2] =
-            if test:
+            if trace:
                 t_hist[i] = np.mean(self.t[1])
                 q_hist[i] = np.mean(self.q[1])
-        if test:
-            plt.subplot(2, 1, 1)
-            p = plt.plot(np.arange(nstep), t_hist, "r")
-            plt.title("t")
-            plt.subplot(2, 1, 2)
-            p = plt.plot(np.arange(nstep), q_hist, "b")
-            plt.title("q")
-            plt.tight_layout()
-            plt.show()
-            return (t_hist, q_hist)
+        if trace:
+            return t_hist, q_hist
