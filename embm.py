@@ -137,7 +137,7 @@ class Model(object):
 
     def evaluate_pcip(self):
         """Evaluate the precipitation terms at `n + 1`"""
-        self.calc_pcip_flag
+        self.calc_pcip_flag()
         self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.pcip_flag * (self.q[2] - 0.85 * get_specific_humidity(self.t[2]))  # P
         self.q[2] = 0.85 * get_specific_humidity(self.t[2])
 
@@ -168,7 +168,7 @@ class Model(object):
         partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
         partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
         self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * (partialy2 + partialx2)  # Q_t
-        # self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div_cylinder(self.q[2], self.diffusion_coef_moisture, dy = self.y_step, dx = self.x_step)  # M_T
+
         partialx = np.zeros(self.t[2].shape)
         partialy = np.zeros(self.t[2].shape)
         for i in range(self.n_lat):
@@ -281,10 +281,10 @@ class Model(object):
             self.step_t_forcing(i)
             self.evaluate_diffusion()
             self.step_t_diffusion()  # Corrector
-            # self.step_q_diffusion()  # Predictor
+            self.step_q_diffusion()  # Predictor
             self.evaluate_diffusion()
             self.step_t_diffusion()  # Corrector
-            # self.step_q_diffusion()  # Corrector
+            self.step_q_diffusion()  # Corrector
             self.evaluate_pcip()
             for v in [self.t, self.q]:
                 v[0] = np.copy(v[1])
@@ -300,7 +300,7 @@ class Model(object):
 
 
 m = Model()
-m.step(15)
+m.step(1)
 
 # if __name__ == '__main__':
     # main()
