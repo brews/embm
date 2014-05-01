@@ -145,8 +145,8 @@ class Model(object):
         self.p = (self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)/(self.rho_sea * self.time_step) * self.pcip_flag * (self.q[2] - 0.85 * get_specific_humidity(self.t[2]))  # P
         self.q[2] = 0.85 * get_specific_humidity(self.t[2])
 
-    def evaluate_diffusion(self):
-        """Evaluate diffusion terms at time `n + 1`"""
+    def evaluate_t_diffusion(self):
+        """Evaluate heat diffusion at time `n + 1`"""
         partialx = np.zeros(self.t[2].shape)
         partialy = np.zeros(self.t[2].shape)
         for i in range(self.n_lat):
@@ -173,8 +173,10 @@ class Model(object):
         partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
         self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * (partialy2 + partialx2)  # Q_t
 
-        partialx = np.zeros(self.t[2].shape)
-        partialy = np.zeros(self.t[2].shape)
+    def evaluate_q_diffusion(self):
+        """Evaluate moisture diffusion at time `n + 1`"""
+        partialx = np.zeros(self.q[2].shape)
+        partialy = np.zeros(self.q[2].shape)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
                 partialx[i, j] = (self.q[2, i, j + 1] - self.q[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_moisture[i]
@@ -283,12 +285,14 @@ class Model(object):
             self.evaluate_forcing()
             self.evaluate_evap()
             self.step_t_forcing(i)
-            self.evaluate_diffusion()
-            self.step_t_diffusion()  # Corrector
-            self.step_q_diffusion()  # Predictor
-            self.evaluate_diffusion()
-            self.step_t_diffusion()  # Corrector
-            self.step_q_diffusion()  # Corrector
+            self.evaluate_t_diffusion()
+            self.step_t_diffusion()  # t corrector
+            self.evaluate_q_diffusion()
+            self.step_q_diffusion()  # q predictor
+            self.evaluate_t_diffusion()
+            self.step_t_diffusion()  # t corrector
+            self.evaluate_q_diffusion()
+            self.step_q_diffusion()  # q corrector
             self.evaluate_pcip()
             for v in [self.t, self.q]:
                 v[0] = np.copy(v[1])
