@@ -144,6 +144,14 @@ class Model(object):
         """
         self.coalbedo = 0.7995 - 0.315 * np.sin(self.lat_range * np.pi/180)**2
 
+    def new_diffusion(self, x):
+        test = grad_cylinder(x, dy = self.y_step, dx = self.x_step)
+        test[1] *= self.diffusion_coef_heat[:, np.newaxis]
+        test[0] = grad_cylinder(test[0], dx = self.x_step, dy = self.y_step)[0]
+        test[1] = grad_cylinder(test[1], dx = self.x_step, dy = self.y_step)[1]
+        test[0] *= self.diffusion_coef_heat[:, np.newaxis]
+        return test
+
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
         # TODO: Be sure we're accounting for all terms in eq 2. and ocean/land differences.
@@ -171,8 +179,9 @@ class Model(object):
 
     def evaluate_diffusion(self):
         """Evaluate diffusion terms at time `n + 1`"""
-        self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div_cylinder(self.t[2], self.diffusion_coef_heat, dy = self.y_step, dx = self.x_step)  # Q_T
-        self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div_cylinder(self.q[2], self.diffusion_coef_moisture, dy = self.y_step, dx = self.x_step)  # M_T
+        # self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * weighted_div_cylinder(self.t[2], self.diffusion_coef_heat, dy = self.y_step, dx = self.x_step)  # Q_T
+        # self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div_cylinder(self.q[2], self.diffusion_coef_moisture, dy = self.y_step, dx = self.x_step)  # M_T
+        pass
 
     def step_t_forcing(self, i):
         """Update air temperature at `n + 1` based on change in forcing
@@ -181,17 +190,42 @@ class Model(object):
         """
         if i%10 == 0:
             # Do Euler forward time differencing.
-            self.t[2] = self.t[1] + self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
+            self.t[2] = self.t[1] + self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh)
+            # self.t[2] = self.t[1] + self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh  self.q_lh) / (self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
         else:
             # Do leapfrog time differencing.
-            self.t[2] = self.t[0] + 2 * self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere + self.c_rhoa)
+            self.t[2] = self.t[0] + 2 * self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
 
     def step_t_diffusion(self):
         """Update air temperature at `n + 1` based on change in diffusion terms
 
         This uses the Matsuno predictor-corrector scheme.
         """
-        self.t[2] = self.t[2] + self.time_step * self.q_t/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
+        # self.t[2] = self.t[2] + self.time_step * self.q_t/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
+        #############################
+        # xcomp = self.new_diffusion(self.t[2])[1]
+        # t_star = self.t[2] + self.time_step * xcomp
+        # ycomp = self.new_diffusion(t_star)[0]
+        # self.t[2] = t_star + self.time_step * ycomp
+        #############################
+        partialx = np.zeros(self.t[2].shape)
+        partialy = np.zeros(self.t[2].shape)
+        partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step) * self.diffusion_coef_heat
+        # partialx[-1, :] = (self.t[2, 0, :] - self.t[2, :, -2]) / (2 * self.x_step) * self.d
+        for i in range(1, self.n_lat - 1):
+            for j in range(self.n_lon):
+                partialy[i, j] = (self.t[2, i + 1, j] - self.t[2, i - 1, j]) / (2 * self.y_step)
+        for i in range(self.n_lat):
+            for j in range(1, self.n_lon - 1):
+                partialx[i, j] = (self.t[2, i, j + 1] - self.t[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_heat[i]
+
+        partialx2 = np.zeros(self.t[2].shape)
+        partialy2 = np.zeros(self.t[2].shape)
+        for i in range(1, self.n_lat - 1):
+            for j in range(1, self.n_lon - 1):
+                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
+                partialy2[i, j] = (partialy[i + 1, j] - partialy[i - 1, j]) / (2 * self.y_step) * self.diffusion_coef_heat[i]
+        return [partialy2, partialx2]
 
     def step_q_diffusion(self):
         """Update specific humidity at `n + 1` based on change in diffusion terms
@@ -217,7 +251,7 @@ class Model(object):
             self.evaluate_forcing()
             self.evaluate_evap()
             self.step_t_forcing(i)
-            self.evaluate_diffusion()
+            # self.evaluate_diffusion()
             # self.step_t_diffusion()  # Predictor
             # self.step_q_diffusion()  # Predictor
             # self.evaluate_diffusion()
@@ -237,9 +271,8 @@ class Model(object):
         #     plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
 
 
-n_time_step = 500
-model = Model()
-# model.step(1)
+m = Model()
+m.step()
 
 # if __name__ == '__main__':
     # main()
