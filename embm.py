@@ -19,7 +19,6 @@
 Energy-moisture balance climate model based on Fanning and Weaver 1996 (F&W).
 """
 
-
 import numpy as np
 import pylab as plt
 from tqdm import tqdm
@@ -148,7 +147,7 @@ class Model(object):
         # TODO: Be sure we're accounting for all terms in eq 2. and ocean/land differences.
         self.dalton = 1e-3 * (1.0022 - 0.0822 * (self.t[1] - self.sst) + 0.0266 * self.wind)
         self.stanton = 0.94 * self.dalton
-        
+
         self.q_ssw = (self.solar_constant/4 * self.annual_shortwave[:, np.newaxis] 
             * self.coalbedo[:, np.newaxis] * (1 - self.scattering))  # Q_SSW
         self.q_lw = self.emissivity_planet[:, np.newaxis] * self.stefanboltz * self.t[1]**4  # Q_LW
@@ -242,12 +241,12 @@ class Model(object):
 
         self.m_t = self.rho_air * self.scale_depth_humidity * (partialy2 + partialx2)  # M_T
 
-    def step_t_forcing(self, i):
+    def step_t_forcing(self, euler=False):
         """Update air temperature at `n + 1` based on change in forcing
 
         This uses a leapfrog/Euler-forward scheme.
         """
-        if i%10 == 0:
+        if euler:
             # Do Euler forward time differencing.
             self.t[2] = (self.t[1] + self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) 
                 * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh))
@@ -275,47 +274,6 @@ class Model(object):
         self.q[2, 0, :] = self.q[2, 1, :].mean()
         self.q[2, -1, :] = self.q[2, -2, :].mean()
 
-    def step_t_diffusion2(self):
-        """Update air temperature at `n + 1` based on change in diffusion terms
-
-        This uses the Matsuno predictor-corrector scheme.
-        """
-        partialx = np.zeros(self.t[2].shape)
-        for i in range(self.n_lat):
-            for j in range(1, self.n_lon - 1):
-                partialx[i, j] = ((self.t[2, i, j + 1] - self.t[2, i, j - 1]) 
-                    / (2 * self.x_step[i]) * self.diffusion_coef_heat[i])
-        partialx[:, 0] = (self.t[2, :, 1] - self.t[2, :, -1]) / (2 * self.x_step)
-        partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step)
-        partialx2 = np.zeros(self.t[2].shape)
-        for i in range(self.n_lat):
-            for j in range(1, self.n_lon - 1):
-                partialx2[i, j] = ((partialx[i, j + 1] - partialx[i, j - 1]) 
-                    / (2 * self.x_step[i]))
-        partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
-        partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
-
-        tstar = self.t[2] + self.time_step * partialx2
-
-        partialy = np.zeros(self.t[2].shape)
-        for i in range(1, self.n_lat - 1):
-            for j in range(self.n_lon):
-                partialy[i, j] = ((tstar[i + 1, j] - tstar[i - 1, j]) 
-                    / (2 * self.y_step))
-        partialy[0, :] = (tstar[1, :] - tstar[0, :]) / (self.y_step)
-        partialy[-1, :] = (tstar[-1, :] - tstar[-2, :]) / (self.y_step)
-        partialy2 = np.zeros(tstar.shape)
-        for i in range(1, self.n_lat - 1):
-            for j in range(self.n_lon):
-                partialy2[i, j] = ((partialy[i + 1, j] - partialy[i - 1, j]) 
-                    / (2 * self.y_step) * self.diffusion_coef_heat[i])
-        partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
-        partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
-
-        self.t[2] = tstar + self.time_step * partialy2
-        self.t[2, 0, :] = self.t[2, 1, :].mean()
-        self.t[2, -1, :] = self.t[2, -2, :].mean()
-
     def calc_pcip_flag(self):
         """Return 1 if precipitation, 0 if not at each grid cell"""
         # TODO: Which `n` do we want this at?
@@ -324,7 +282,7 @@ class Model(object):
         out[rel_humidity >= 0.85] = 1
         self.pcip_flag = out
 
-    def step(self, nstep=1, test=False):
+    def step(self, nstep=1, test=False, euler_steps=10):
         """Push the model through `nstep` time steps"""
         if test:
             t_hist = np.zeros(nstep)
@@ -332,7 +290,10 @@ class Model(object):
         for i in tqdm(range(nstep)):
             self.evaluate_forcing()
             self.evaluate_evap()
-            self.step_t_forcing(i)
+            if i % euler_steps:
+                self.step_t_forcing(euler = True)
+            else:
+                self.step_t_forcing()
             self.evaluate_t_diffusion()
             self.step_t_diffusion()  # t corrector
             self.evaluate_q_diffusion()
