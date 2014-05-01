@@ -35,7 +35,7 @@ def get_vapor_pressure(temp):
 
 
 def get_specific_humidity(temp):
-    """Get saturated specific humidity (q_s; g/kg) for a given temp (K)
+    """Get saturated specific humidity (q_s; kg/kg) for a given temp (K)
     """
     vapor_p = get_vapor_pressure(temp)
     return 0.622 * (vapor_p/(1013.26 - 0.378 * vapor_p))
