@@ -43,9 +43,11 @@ def get_specific_humidity(temp):
 
 class Model(object):
 
+
     def __init__(self):
         self._initialize_constants()
         self._initialize_variables()
+
 
     def _initialize_constants(self):
         self.n_lon = 72
@@ -79,6 +81,7 @@ class Model(object):
         self.sst[self.sst == -999] = np.nan
         self.sst += 273.15
 
+
     def _initialize_variables(self):
         self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
         self.q = np.zeros((3, self.n_lat, self.n_lon))
@@ -92,6 +95,7 @@ class Model(object):
         self._calc_emissivity()
         self.calc_pcip_flag()
         self.p = np.zeros(self.wind.shape)
+
 
     def _calc_diffusion_coefs(self):
         """Calculate the diffusion coefficients for model latitudes
@@ -109,6 +113,7 @@ class Model(object):
                             - 274.1129 * abs_sin**3 
                             + 258.2244 * abs_sin**4 
                             - 85.7967 * abs_sin**5)
+
 
     def _calc_emissivity(self):
         """Calculate emissivity (ϵ) for given latitude
@@ -129,18 +134,22 @@ class Model(object):
                     - 1.3592 * sin_lat**5 + 3.8831 * sin_lat**6
                     + 0.8348 * sin_lat**7 - 1.9536 * sin_lat**8)
 
+
     def _calc_annual_shortwave(self):
         """Set the annual distribution of shortwave radiation (S) given latitude
         """
         self.annual_shortwave = 1.5 * (1 - np.sin(self.lat_range * np.pi/180)**2)
 
+
     def _calc_coalbedo(self):
         """Get the co-albedo (1 - α) for a given latitude"""
         self.coalbedo = 0.7995 - 0.315 * np.sin(self.lat_range * np.pi/180)**2
 
+
     def reset(self):
         """Reset the model's variables"""
         self._initialize_variables()
+
 
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
@@ -158,12 +167,14 @@ class Model(object):
         self.q_sh[self.ocean_mask == 0] = 0
         self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
 
+
     def evaluate_evap(self):
         """Evaluate the evaporation terms at `n`"""
         self.e = ((self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)
             /self.rho_sea * (get_specific_humidity(self.sst) - self.q[1]))  # E
         self.e[self.ocean_mask == 0] = 0
         # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
+
 
     def evaluate_pcip(self):
         """Evaluate the precipitation terms at `n + 1`"""
@@ -172,6 +183,7 @@ class Model(object):
             /(self.rho_sea * self.time_step) * self.pcip_flag 
             * (self.q[2] - 0.85 * get_specific_humidity(self.t[2])))  # P
         self.q[2][self.pcip_flag == 1] = 0.85 * get_specific_humidity(self.t[2][self.pcip_flag == 1])
+
 
     def evaluate_t_diffusion(self):
         """Evaluate heat diffusion at time `n + 1`"""
@@ -207,6 +219,7 @@ class Model(object):
 
         self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * (partialy2 + partialx2)  # Q_t
 
+
     def evaluate_q_diffusion(self):
         """Evaluate moisture diffusion at time `n + 1`"""
         partialx = np.zeros(self.q[2].shape)
@@ -241,6 +254,7 @@ class Model(object):
 
         self.m_t = self.rho_air * self.scale_depth_humidity * (partialy2 + partialx2)  # M_T
 
+
     def step_t_forcing(self, euler=False):
         """Update air temperature at `n + 1` based on change in forcing
 
@@ -255,6 +269,7 @@ class Model(object):
             self.t[2] = (self.t[0] + 2 * self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) 
                 * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh))
 
+
     def step_t_diffusion(self):
         """Update air temperature at `n + 1` based on change in diffusion terms
 
@@ -263,6 +278,7 @@ class Model(object):
         self.t[2] += self.time_step * self.q_t/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
         self.t[2, 0, :] = self.t[2, 1, :].mean()
         self.t[2, -1, :] = self.t[2, -2, :].mean()
+
 
     def step_q_diffusion(self):
         """Update specific humidity at `n + 1` based on change in diffusion terms
@@ -274,6 +290,7 @@ class Model(object):
         self.q[2, 0, :] = self.q[2, 1, :].mean()
         self.q[2, -1, :] = self.q[2, -2, :].mean()
 
+
     def calc_pcip_flag(self):
         """Return 1 if precipitation, 0 if not at each grid cell"""
         # TODO: Which `n` do we want this at?
@@ -281,6 +298,7 @@ class Model(object):
         out = np.zeros(rel_humidity.shape)
         out[rel_humidity >= 0.85] = 1
         self.pcip_flag = out
+
 
     def step(self, nstep=1, trace=False, euler_steps=10):
         """Run the model for a period of time_step
