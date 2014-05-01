@@ -27,6 +27,10 @@ def get_specific_humidity(temp):
 
 class Model(object):
     def __init__(self):
+        self._initialize_constants()
+        self._initialize_variables()
+
+    def _initialize_constants(self):
         self.n_lon = 72
         self.n_lat = 46
         self.time_step = 3600  # Model time step (s).
@@ -43,16 +47,13 @@ class Model(object):
         self.solar_constant = 1360  # (w/m^2).
         self.stefanboltz = 5.67e-8  # Stefan-Boltzmann constant (w/(m^2 k^4)).
 
-        self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
-        self.q = np.zeros((3, self.n_lat, self.n_lon))
-
         # TODO: A lot of this should be spec in a method or initialization.
         self.lat_range = np.linspace(-90, 90, self.n_lat, endpoint = True)
         self.lon_range = np.linspace(-180, 180, self.n_lon, endpoint = True)
         self.x_step = self.earth_radius * 2 * np.cos(self.lat_range * np.pi/180) * np.pi / self.n_lon  # (m)
         self.x_step[0] = 1; self.x_step[-1] = 1  # Not sure about this.
         self.y_step = self.earth_radius * 2 * np.pi / self.n_lat  # (m)
-
+        
         # TODO: This IO should use a method and be done in main().
         self.ocean_mask = np.loadtxt("./data/mask.txt", dtype = "i")
         self.wind = np.loadtxt("./data/wind.txt", dtype = "d")
@@ -60,6 +61,9 @@ class Model(object):
         self.sst[self.sst == -999] = np.nan
         self.sst += 273.15
 
+    def _initialize_variables(self):
+        self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
+        self.q = np.zeros((3, self.n_lat, self.n_lon))
         # TODO: Need test that all spatial arrays are equal.
         self._calc_diffusion_coefs()
         self._calc_annual_shortwave()
@@ -294,13 +298,12 @@ class Model(object):
                 t_hist[i] = np.mean(self.t[1])
                 q_hist[i] = np.mean(self.q[1])
         if test:
-            print(nstep)
             plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
 
 
 
 m = Model()
-m.step(1)
+m.step(15, test = True)
 
 # if __name__ == '__main__':
     # main()
