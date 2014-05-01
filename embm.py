@@ -116,14 +116,6 @@ class Model(object):
         """
         self.coalbedo = 0.7995 - 0.315 * np.sin(self.lat_range * np.pi/180)**2
 
-    def new_diffusion(self, x):
-        test = grad_cylinder(x, dy = self.y_step, dx = self.x_step)
-        test[1] *= self.diffusion_coef_heat[:, np.newaxis]
-        test[0] = grad_cylinder(test[0], dx = self.x_step, dy = self.y_step)[0]
-        test[1] = grad_cylinder(test[1], dx = self.x_step, dy = self.y_step)[1]
-        test[0] *= self.diffusion_coef_heat[:, np.newaxis]
-        return test
-
     def evaluate_forcing(self):
         """Evaluate forcing terms at time `n`"""
         # TODO: Be sure we're accounting for all terms in eq 2. and ocean/land differences.
@@ -155,28 +147,28 @@ class Model(object):
         partialy = np.zeros(self.t[2].shape)
         partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step) * self.diffusion_coef_heat
         # partialx[-1, :] = (self.t[2, 0, :] - self.t[2, :, -2]) / (2 * self.x_step) * self.d
-        for i in range(1, self.n_lat - 1):
-            for j in range(self.n_lon):
-                partialy[i, j] = (self.t[2, i + 1, j] - self.t[2, i - 1, j]) / (2 * self.y_step)
-        partialy[0, :] = (self.t[2, 1, :] - self.t[2, 0, :]) / (self.y_step)
-        partialy[-1, :] = (self.t[2, -1, :] - self.t[2, -2, :]) / (self.y_step)
         for i in range(self.n_lat):
             for j in range(1, self.n_lon - 1):
                 partialx[i, j] = (self.t[2, i, j + 1] - self.t[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_heat[i]
         partialx[:, 0] = (self.t[2, :, 1] - self.t[2, :, -1]) / (2 * self.x_step)
         partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step)
         partialx2 = np.zeros(self.t[2].shape)
+        for i in range(self.n_lat):
+            for j in range(1, self.n_lon - 1):
+                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
+        partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
+        partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
+        for i in range(1, self.n_lat - 1):
+            for j in range(self.n_lon):
+                partialy[i, j] = (self.t[2, i + 1, j] - self.t[2, i - 1, j]) / (2 * self.y_step)
+        partialy[0, :] = (self.t[2, 1, :] - self.t[2, 0, :]) / (self.y_step)
+        partialy[-1, :] = (self.t[2, -1, :] - self.t[2, -2, :]) / (self.y_step)
         partialy2 = np.zeros(self.t[2].shape)
         for i in range(1, self.n_lat - 1):
             for j in range(self.n_lon):
                 partialy2[i, j] = (partialy[i + 1, j] - partialy[i - 1, j]) / (2 * self.y_step) * self.diffusion_coef_heat[i]
         partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
         partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
-        for i in range(self.n_lat):
-            for j in range(1, self.n_lon - 1):
-                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
-        partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
-        partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
         self.q_t = self.rho_air * self.scale_depth_atmosphere * self.c_rhoa * (partialy2 + partialx2)  # Q_t
         # self.m_t = self.rho_air * self.scale_depth_humidity * weighted_div_cylinder(self.q[2], self.diffusion_coef_moisture, dy = self.y_step, dx = self.x_step)  # M_T
 
@@ -190,7 +182,7 @@ class Model(object):
             self.t[2] = self.t[1] + self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh)
         else:
             # Do leapfrog time differencing.
-            self.t[2] = self.t[0] + 2 * self.time_step * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh) / (self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
+            self.t[2] = self.t[0] + 2 * self.time_step/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa) * (self.q_ssw - self.q_lw + self.q_rr + self.q_sh + self.q_lh)
 
     def step_t_diffusion(self):
         """Update air temperature at `n + 1` based on change in diffusion terms
@@ -198,6 +190,42 @@ class Model(object):
         This uses the Matsuno predictor-corrector scheme.
         """
         self.t[2] += self.time_step * self.q_t/(self.rho_air * self.scale_depth_atmosphere * self.c_rhoa)
+        self.t[2, 0, :] = self.t[2, 1, :].mean()
+        self.t[2, -1, :] = self.t[2, -2, :].mean()
+
+    def step_t_diffusion2(self):
+        """Update air temperature at `n + 1` based on change in diffusion terms
+
+        This uses the Matsuno predictor-corrector scheme.
+        """
+        partialx = np.zeros(self.t[2].shape)
+        partialy = np.zeros(self.t[2].shape)
+        partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step) * self.diffusion_coef_heat
+        # partialx[-1, :] = (self.t[2, 0, :] - self.t[2, :, -2]) / (2 * self.x_step) * self.d
+        for i in range(self.n_lat):
+            for j in range(1, self.n_lon - 1):
+                partialx[i, j] = (self.t[2, i, j + 1] - self.t[2, i, j - 1]) / (2 * self.x_step[i]) * self.diffusion_coef_heat[i]
+        partialx[:, 0] = (self.t[2, :, 1] - self.t[2, :, -1]) / (2 * self.x_step)
+        partialx[:, -1] = (self.t[2, :, 0] - self.t[2, :, -2]) / (2 * self.x_step)
+        partialx2 = np.zeros(self.t[2].shape)
+        for i in range(self.n_lat):
+            for j in range(1, self.n_lon - 1):
+                partialx2[i, j] = (partialx[i, j + 1] - partialx[i, j - 1]) / (2 * self.x_step[i])
+        partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
+        partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
+        tstar = self.t[2] + self.time_step * partialx2
+        for i in range(1, self.n_lat - 1):
+            for j in range(self.n_lon):
+                partialy[i, j] = (tstar[i + 1, j] - tstar[i - 1, j]) / (2 * self.y_step)
+        partialy[0, :] = (tstar[1, :] - tstar[0, :]) / (self.y_step)
+        partialy[-1, :] = (tstar[-1, :] - tstar[-2, :]) / (self.y_step)
+        partialy2 = np.zeros(tstar.shape)
+        for i in range(1, self.n_lat - 1):
+            for j in range(self.n_lon):
+                partialy2[i, j] = (partialy[i + 1, j] - partialy[i - 1, j]) / (2 * self.y_step) * self.diffusion_coef_heat[i]
+        partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
+        partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
+        self.t[2] = tstar + self.time_step * partialy2
         self.t[2, 0, :] = self.t[2, 1, :].mean()
         self.t[2, -1, :] = self.t[2, -2, :].mean()
 
@@ -225,26 +253,27 @@ class Model(object):
             self.evaluate_forcing()
             self.evaluate_evap()
             self.step_t_forcing(i)
-            self.evaluate_diffusion()
-            self.step_t_diffusion()  # Predictor
+            # self.evaluate_diffusion()
             # self.step_q_diffusion()  # Predictor
-            self.evaluate_diffusion()
-            self.step_t_diffusion()  # Corrector
+            # self.evaluate_diffusion()
+            # self.step_t_diffusion()  # Corrector
             # self.step_q_diffusion()  # Corrector
-            self.evaluate_pcip()
-            for v in [self.t, self.q]:
-                v[0] = v[1]
-                v[1] = v[2]
-                v[2] = np.nan
-        #     if test:
-        #         t_hist[i] = np.mean(self.t[1])
-        #         q_hist[i] = np.mean(self.q[1])
-        # if test:
-        #     plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
+            # self.evaluate_pcip()
+            # for v in [self.t, self.q]:
+            #     v[0] = v[1]
+            #     v[1] = v[2]
+            #     v[2] = 0
+            if test:
+                t_hist[i] = np.mean(self.t[1])
+                q_hist[i] = np.mean(self.q[1])
+        if test:
+            print(nstep)
+            plt.plot(np.arange(nstep), t_hist, np.arange(nstep), q_hist)
+
 
 
 m = Model()
-m.step()
+m.step(1)
 
 # if __name__ == '__main__':
     # main()
