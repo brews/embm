@@ -199,7 +199,7 @@ class Model(object):
     def evaluate_evap(self):
         """Evaluate the evaporation terms at `n`"""
         self.e = ((self.rho_air * self.dalton * self.wind * SECONDS_PER_YEAR)
-            /self.rho_sea * (get_specific_humidity(self.sst) - self.q[1]))  # E
+            /self.rho_sea * (get_specific_humidity(self.sst) - self.q[1]))
 
         self.e[self.ocean_mask == 0] = 0
         # self.q_lh = (self.rho_sea/SECONDS_PER_YEAR) * self.latent_heat_evap * self.p  # Q_LH
@@ -210,7 +210,7 @@ class Model(object):
         self.calc_pcip_flag()
         self.p = ((self.rho_air * self.scale_depth_humidity * SECONDS_PER_YEAR)
             /(self.rho_sea * self.time_step) * self.pcip_flag 
-            * (self.q[2] - 0.85 * get_specific_humidity(self.t[2])))  # P
+            * (self.q[2] - 0.85 * get_specific_humidity(self.t[2])))
 
         self.q[2][self.pcip_flag == 1] = (0.85 
             * get_specific_humidity(self.t[2][self.pcip_flag == 1]))
@@ -302,19 +302,28 @@ class Model(object):
         for i in tqdm(range(nstep)):
             self.evaluate_forcing()
             self.evaluate_evap()
+
+            # Leapfrog/Euler-forward step
             if i % euler_steps:
                 self.step_t_forcing(euler = True)
             else:
                 self.step_t_forcing()
+
+            # Predictor step
             self.evaluate_t_diffusion()
-            self.step_t_diffusion()  # t corrector
+            self.step_t_diffusion()
             self.evaluate_q_diffusion()
-            self.step_q_diffusion()  # q predictor
+            self.step_q_diffusion()
+
+            # Corrector step
             self.evaluate_t_diffusion()
-            self.step_t_diffusion()  # t corrector
+            self.step_t_diffusion()
             self.evaluate_q_diffusion()
-            self.step_q_diffusion()  # q corrector
+            self.step_q_diffusion()
+
             self.evaluate_pcip()
+
+            # Shifting one step forward in time.
             for v in [self.t, self.q]:
                 v[0] = np.copy(v[1])
                 v[1] = np.copy(v[2])
