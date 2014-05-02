@@ -83,7 +83,7 @@ class Model(object):
 
 
     def _initialize_variables(self):
-    	self.steps_run = 0
+        self.steps_run = 0
         self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
         self.q = np.zeros((3, self.n_lat, self.n_lon))
         self._calc_diffusion_coefs()
@@ -282,13 +282,12 @@ class Model(object):
 
 
     def global_mean(self, x):
-    	"""Get the grid-area averaged mean for a model variable.
-    	"""
-    	return np.average(x.flat, weights = np.repeat(self.x_step * self.y_step, self.n_lon))
+        """Get the grid-area averaged mean for a model variable.
+        """
+        return np.average(x.flat, weights = np.repeat(self.x_step * self.y_step, self.n_lon))
 
 
-
-    def step(self, nstep=1, trace=False, euler_steps=10):
+    def step(self, nstep=1, trace=False, euler_steps=10, verbose=False):
         """Run the model for a period of time_step
 
         Args:
@@ -299,15 +298,24 @@ class Model(object):
             euler_steps: After how many time steps the temperature forcing 
                 integration should switch from a Leapfrog scheme to a Euler 
                 forward scheme. The default is 10 steps.
+            verbose: Either `True` or `False` to showing a progress bar in 
+                the console. Handy for long runs. Default is false.
 
         Returns:
             Nothing unless `euler_steps = True`, then `t_history`, and 
             `q_history` are returned.
         """
+        def ranger():
+            if verbose:
+                return tqdm(range(nstep))
+            else:
+                return range(nstep)
+
         if trace:
             t_hist = np.zeros(nstep)
             q_hist = np.zeros(nstep)
-        for i in tqdm(range(nstep)):
+
+        for i in ranger():
             self.evaluate_forcing()
             self.evaluate_evap()
 
