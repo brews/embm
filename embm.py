@@ -69,8 +69,8 @@ class Model(object):
         # TODO: A lot of this should be spec in a method or initialization.
         self.lat_range = np.linspace(-90, 90, self.n_lat, endpoint = True)
         self.lon_range = np.linspace(-180, 180, self.n_lon, endpoint = True)
-        self.x_step = (self.earth_radius * 2 * np.cos(self.lat_range * np.pi/180)
-            * np.pi / self.n_lon)  # (m)
+        self.x_step = (self.earth_radius * 2 
+            * np.cos(self.lat_range * np.pi/180) * np.pi / self.n_lon)  # (m)
         self.x_step[0] = 1; self.x_step[-1] = 1  # Not sure about this.
         self.y_step = self.earth_radius * 2 * np.pi / self.n_lat  # (m)
         
@@ -85,7 +85,6 @@ class Model(object):
     def _initialize_variables(self):
         self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
         self.q = np.zeros((3, self.n_lat, self.n_lon))
-        # TODO: Need test that all spatial arrays are equal.
         self._calc_diffusion_coefs()
         self._calc_annual_shortwave()
         self._calc_coalbedo()
@@ -145,38 +144,24 @@ class Model(object):
         """Get the co-albedo (1 - α) for a given latitude"""
         self.coalbedo = 0.7995 - 0.315 * np.sin(self.lat_range * np.pi/180)**2
 
-
+    
     def _calc_diffusion(self, x, coef):
-        partialx = np.zeros(x.shape)
-        for j in range(1, self.n_lon - 1):
-            partialx[:, j] = ((x[:, j + 1] - x[:, j - 1]) 
-                / (2 * self.x_step) * coef)
+        # 1st derivative.
+        grad1 = np.gradient(x, self.y_step, self.x_step[:, np.newaxis])
+        # x component.
+        grad1[1] *= coef[:, np.newaxis]
+        grad1[1][:, 0] = (x[:, 1] - x[:, -1]) / (2 * self.x_step) * coef
+        grad1[1][:, -1] = (x[:, 0] - x[:, -2]) / (2 * self.x_step) * coef
 
-        partialx[:, 0] = (x[:, 1] - x[:, -1]) / (2 * self.x_step)
-        partialx[:, -1] = (x[:, 0] - x[:, -2]) / (2 * self.x_step)
-        partialx2 = np.zeros(x.shape)
-        for j in range(1, self.n_lon - 1):
-            partialx2[:, j] = ((partialx[:, j + 1] - partialx[:, j - 1]) 
-                / (2 * self.x_step))
-
-        partialx2[:, 0] = (partialx[:, 1] - partialx[:, -1]) / (2 * self.x_step)
-        partialx2[:, -1] = (partialx[:, 0] - partialx[:, -2]) / (2 * self.x_step)
-
-        partialy = np.zeros(x.shape)
-        for i in range(1, self.n_lat - 1):
-            partialy[i, :] = ((x[i + 1, :] - x[i - 1, :]) 
-                    / (2 * self.y_step))
-
-        partialy[0, :] = (x[1, :] - x[0, :]) / (self.y_step)
-        partialy[-1, :] = (x[-1, :] - x[-2, :]) / (self.y_step)
-        partialy2 = np.zeros(x.shape)
-        for i in range(1, self.n_lat - 1):
-            partialy2[i, :] = ((partialy[i + 1, :] - partialy[i - 1, :]) 
-                    / (2 * self.y_step) * coef[i])
-
-        partialy2[0, :] = (partialy[1, :] - partialy[0, :]) / (self.y_step)
-        partialy2[-1, :] = (partialy[-1, :] - partialy[-2, :]) / (self.y_step)
-        return partialy2 + partialx2
+        # 2nd derivative.
+        grad2 = [np.gradient(grad1[0], self.y_step, self.x_step[:, np.newaxis])[0],
+                 np.gradient(grad1[1], self.y_step, self.x_step[:, np.newaxis])[1]]
+        # y component.
+        grad2[0] *= coef[:, np.newaxis]
+        # x component.
+        grad2[1][:, 0] = (grad1[1][:, 1] - grad1[1][:, -1]) / (2 * self.x_step)
+        grad2[1][:, -1] = (grad1[1][:, 0] - grad1[1][:, -2]) / (2 * self.x_step)
+        return grad2[0] + grad2[1]
 
 
     def reset(self):
@@ -235,6 +220,7 @@ class Model(object):
         """Evaluate heat diffusion at time `n + 1`"""
         self.q_t = (self.rho_air * self.scale_depth_atmosphere * self.c_rhoa 
             * self._calc_diffusion(self.t[2], self.diffusion_coef_heat))
+
 
     def evaluate_q_diffusion(self):
         """Evaluate moisture diffusion at time `n + 1`"""
@@ -332,7 +318,7 @@ class Model(object):
             for v in [self.t, self.q]:
                 v[0] = np.copy(v[1])
                 v[1] = np.copy(v[2])
-                # TODO: Check why we can't assign to v[2]. Somehting is off here.
+                # TODO: Check why we can't assign to v[2]. Something is off here.
                 # v[2] =
             if trace:
                 t_hist[i] = np.mean(self.t[1])
