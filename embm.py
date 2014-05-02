@@ -83,6 +83,7 @@ class Model(object):
 
 
     def _initialize_variables(self):
+    	self.steps_run = 0
         self.t = np.ones((3, self.n_lat, self.n_lon)) * 273.15
         self.q = np.zeros((3, self.n_lat, self.n_lon))
         self._calc_diffusion_coefs()
@@ -280,6 +281,13 @@ class Model(object):
         self.pcip_flag = out
 
 
+    def global_mean(self, x):
+    	"""Get the grid-area averaged mean for a model variable.
+    	"""
+    	return np.average(x.flat, weights = np.repeat(self.x_step * self.y_step, self.n_lon))
+
+
+
     def step(self, nstep=1, trace=False, euler_steps=10):
         """Run the model for a period of time_step
 
@@ -330,7 +338,8 @@ class Model(object):
                 # TODO: Check why we can't assign to v[2]. Something is off here.
                 # v[2] =
             if trace:
-                t_hist[i] = np.mean(self.t[1])
-                q_hist[i] = np.mean(self.q[1])
+                t_hist[i] = self.global_mean(self.t[1])
+                q_hist[i] = self.global_mean(self.q[1])
+            self.steps_run += 1
         if trace:
             return t_hist, q_hist
