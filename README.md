@@ -17,7 +17,12 @@ First, [download a copy](https://github.com/brews/embm/archive/master.zip) of th
 import embm
 
 m = embm.Model()
-m.step(10000, verbose = True)
+m.step(10000)
+```
+You can plot or just quickly checkout the fruits of your model's labor:
+```
+m.t[1]
+m.q[1]
 ```
 
 This sets up a model, which we assign to `m`. The model then runs through 10,000 time-steps, roughly 208 days in "model time" with the default settings. This is more than enough time for the model to spin up. This takes under a minute to run on my old laptop.
