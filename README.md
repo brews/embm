@@ -27,8 +27,6 @@ m.q[1]
 
 This sets up a model, which we assign to `m`. The model then runs through 10,000 time-steps, roughly 208 days in "model time" with the default settings. This is more than enough time for the model to spin up. This takes under a minute to run on my old laptop.
 
-The `verbose = True` argument tells the program to print a progress bar to the shell.
-
 You can change settings and parameters or analyze variables within the model by interacting with the model instance, in this case, `m`.
 
 For more information see the documentation within the code or [the project's humble wiki](https://github.com/brews/embm/wiki).
