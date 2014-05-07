@@ -7,7 +7,6 @@ A trivial global atmosphere energy-moisture balance model (EMBM) written in Pyth
 
 * [Python 3](https://www.python.org/)
 * [Numpy](http://www.numpy.org/) (embm was written with version 1.8.1)
-* [Matplotlib](http://matplotlib.org/) (for optional plotting)
 
 # How do I run this?
 
