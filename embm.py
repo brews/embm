@@ -21,7 +21,6 @@ Energy-moisture balance climate model based on Fanning and Weaver 1996 (F&W).
 
 import numpy as np
 import pylab as plt
-from tqdm import tqdm
 
 
 SECONDS_PER_YEAR = 3.15569e7
@@ -287,7 +286,7 @@ class Model(object):
         return np.average(x.flat, weights = np.repeat(self.x_step * self.y_step, self.n_lon))
 
 
-    def step(self, nstep=1, trace=False, euler_steps=10, verbose=False):
+    def step(self, nstep=1, trace=False, euler_steps=10):
         """Run the model for a period of time_step
 
         Args:
@@ -298,24 +297,16 @@ class Model(object):
             euler_steps: After how many time steps the temperature forcing 
                 integration should switch from a Leapfrog scheme to a Euler 
                 forward scheme. The default is 10 steps.
-            verbose: Either `True` or `False` to showing a progress bar in 
-                the console. Handy for long runs. Default is false.
 
         Returns:
             Nothing unless `euler_steps = True`, then `t_history`, and 
             `q_history` are returned.
         """
-        def ranger():
-            if verbose:
-                return tqdm(range(nstep))
-            else:
-                return range(nstep)
-
         if trace:
             t_hist = np.zeros(nstep)
             q_hist = np.zeros(nstep)
 
-        for i in ranger():
+        for i in range(nstep):
             self.evaluate_forcing()
             self.evaluate_evap()
 
