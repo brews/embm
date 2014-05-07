@@ -648,9 +648,10 @@ class Model(object):
         nstep : int, optional
             The number of time steps to run through. Default is 1.
         trace : bool, optional
-            Indicating whether you would like the mean specific 
-            humidity and air temperature averages for each time step 
-            to be stored and returned. Default is `False`.
+            Indicating whether you would like the global-mean specific 
+            humidity, precipitation, and air temperature averages for 
+            each time step to be stored and returned. Default is 
+            `False`.
         euler_steps : int, optional
             After how many time steps the temperature forcing 
             integration should switch from a Leapfrog scheme to a 
@@ -660,12 +661,17 @@ class Model(object):
         -------
         t_hist : array-like
             Only returned if `trace = True`. Array giving the 
-            evolution of the model's air temperature as it steps 
-            through time.
+            evolution of the model's air temperature as the model 
+            steps through time
         q_hist : array-like
             Only returned if `trace = True`. Array giving the 
-            evolution of the model's specific humidity as it 
-            steps through time.
+            evolution of the model's specific humidity as the model 
+            steps through time
+        p_hist : array-like
+            Only returned if `trace = True`. Array giving the 
+            evolution of the model's precipitation as the model steps 
+            through time.
+
 
         Notes
         -----
@@ -688,6 +694,7 @@ class Model(object):
         if trace:
             t_hist = np.zeros(nstep)
             q_hist = np.zeros(nstep)
+            p_hist = np.zeros(nstep)
 
         for i in range(nstep):
             # Time step
@@ -723,6 +730,7 @@ class Model(object):
             if trace:
                 t_hist[i] = self.global_mean(self.t[1])
                 q_hist[i] = self.global_mean(self.q[1])
+                p_hist[i] = self.global_mean(self.p)
             self.steps_run += 1
         if trace:
-            return t_hist, q_hist
+            return t_hist, q_hist, p_hist
