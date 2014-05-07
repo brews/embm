@@ -20,9 +20,8 @@ Energy-moisture balance climate model based on [1]_.
 
 Notes
 -----
-Special thanks to 
-Prof. Jianjun Yin at the University of Arizona, Dept. Geosciences for 
-input.
+Special thanks to Prof. Jianjun Yin at the University of 
+Arizona, Dept. Geosciences for input and education.
 
 References
 ----------
